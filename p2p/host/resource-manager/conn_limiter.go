@@ -74,16 +74,11 @@ func sortNetworkPrefixes(limits []NetworkPrefixLimit) []NetworkPrefixLimit {
 // for a specific subnet than the default limit per subnet.
 func WithNetworkPrefixLimit(ipv4 []NetworkPrefixLimit, ipv6 []NetworkPrefixLimit) Option {
 	return func(rm *resourceManager) error {
-		connLimiterInstance, ok := rm.connLimiter.(*connLimiter)
-		if !ok {
-			return nil // early exit, it might be a custom implementation
-		}
-
 		if ipv4 != nil {
-			connLimiterInstance.networkPrefixLimitV4 = sortNetworkPrefixes(ipv4)
+			rm.connLimiter.SetNetworkPrefixLimitV4(sortNetworkPrefixes(ipv4))
 		}
 		if ipv6 != nil {
-			connLimiterInstance.networkPrefixLimitV6 = sortNetworkPrefixes(ipv6)
+			rm.connLimiter.SetNetworkPrefixLimitV6(sortNetworkPrefixes(ipv6))
 		}
 		return nil
 	}
@@ -95,16 +90,11 @@ func WithNetworkPrefixLimit(ipv4 []NetworkPrefixLimit, ipv6 []NetworkPrefixLimit
 // limit for any given subnet.
 func WithLimitPerSubnet(ipv4 []ConnLimitPerSubnet, ipv6 []ConnLimitPerSubnet) Option {
 	return func(rm *resourceManager) error {
-		connLimiterInstance, ok := rm.connLimiter.(*connLimiter)
-		if !ok {
-			return nil // early exit, it might be a custom implementation
-		}
-
 		if ipv4 != nil {
-			connLimiterInstance.connLimitPerSubnetV4 = ipv4
+			rm.connLimiter.SetConnLimitPerSubnetV4(ipv4)
 		}
 		if ipv6 != nil {
-			connLimiterInstance.connLimitPerSubnetV6 = ipv6
+			rm.connLimiter.SetConnLimitPerSubnetV6(ipv6)
 		}
 		return nil
 	}
@@ -127,7 +117,11 @@ type ConnLimiter interface {
 	RmConn(ip netip.Addr)
 	AddNetworkPrefixLimit(isIP6 bool, npLimit NetworkPrefixLimit)
 	GetNetworkPrefixLimitV4() []NetworkPrefixLimit
+	SetNetworkPrefixLimitV4(newValue []NetworkPrefixLimit)
 	GetNetworkPrefixLimitV6() []NetworkPrefixLimit
+	SetNetworkPrefixLimitV6(newValue []NetworkPrefixLimit)
+	SetConnLimitPerSubnetV4(newValue []ConnLimitPerSubnet)
+	SetConnLimitPerSubnetV6(newValue []ConnLimitPerSubnet)
 }
 
 type connLimiter struct {
@@ -166,12 +160,44 @@ func (cl *connLimiter) GetNetworkPrefixLimitV4() []NetworkPrefixLimit {
 	return cl.networkPrefixLimitV4
 }
 
+// SetNetworkPrefixLimitV4 sets the networkPrefixLimitV4
+func (cl *connLimiter) SetNetworkPrefixLimitV4(newValue []NetworkPrefixLimit) {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+
+	cl.networkPrefixLimitV4 = newValue
+}
+
 // GetNetworkPrefixLimitV6 returns the networkPrefixLimitV6
 func (cl *connLimiter) GetNetworkPrefixLimitV6() []NetworkPrefixLimit {
 	cl.mu.RLock()
 	defer cl.mu.RUnlock()
 
 	return cl.networkPrefixLimitV6
+}
+
+// SetNetworkPrefixLimitV6 sets the networkPrefixLimitV6
+func (cl *connLimiter) SetNetworkPrefixLimitV6(newValue []NetworkPrefixLimit) {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+
+	cl.networkPrefixLimitV6 = newValue
+}
+
+// SetConnLimitPerSubnetV4 sets the connLimitPerSubnetV4
+func (cl *connLimiter) SetConnLimitPerSubnetV4(newValue []ConnLimitPerSubnet) {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+
+	cl.connLimitPerSubnetV4 = newValue
+}
+
+// SetConnLimitPerSubnetV6 sets the connLimitPerSubnetV6
+func (cl *connLimiter) SetConnLimitPerSubnetV6(newValue []ConnLimitPerSubnet) {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+
+	cl.connLimitPerSubnetV6 = newValue
 }
 
 // AddNetworkPrefixLimit adds the provided network prefix limit to the corresponding slice

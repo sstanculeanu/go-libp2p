@@ -44,6 +44,18 @@ func (mock *connLimiterMock) GetNetworkPrefixLimitV6() []NetworkPrefixLimit {
 	return make([]NetworkPrefixLimit, 0)
 }
 
+func (mock *connLimiterMock) SetNetworkPrefixLimitV4(_ []NetworkPrefixLimit) {
+}
+
+func (mock *connLimiterMock) SetNetworkPrefixLimitV6(_ []NetworkPrefixLimit) {
+}
+
+func (mock *connLimiterMock) SetConnLimitPerSubnetV4(_ []ConnLimitPerSubnet) {
+}
+
+func (mock *connLimiterMock) SetConnLimitPerSubnetV6(_ []ConnLimitPerSubnet) {
+}
+
 var dummyMA = multiaddr.StringCast("/ip4/1.2.3.4/tcp/1234")
 
 func TestResourceManager(t *testing.T) {
