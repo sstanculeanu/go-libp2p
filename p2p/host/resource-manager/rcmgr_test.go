@@ -13,6 +13,49 @@ import (
 	"github.com/multiformats/go-multiaddr"
 )
 
+// connLimiterMock -
+type connLimiterMock struct {
+	GetNetworkPrefixLimitV4Called func() []NetworkPrefixLimit
+}
+
+// AddConn -
+func (mock *connLimiterMock) AddConn(_ netip.Addr) bool {
+	return true
+}
+
+// RmConn -
+func (mock *connLimiterMock) RmConn(_ netip.Addr) {
+}
+
+// AddNetworkPrefixLimit -
+func (mock *connLimiterMock) AddNetworkPrefixLimit(_ bool, _ NetworkPrefixLimit) {
+}
+
+// GetNetworkPrefixLimitV4 -
+func (mock *connLimiterMock) GetNetworkPrefixLimitV4() []NetworkPrefixLimit {
+	if mock.GetNetworkPrefixLimitV4Called != nil {
+		return mock.GetNetworkPrefixLimitV4Called()
+	}
+	return make([]NetworkPrefixLimit, 0)
+}
+
+// GetNetworkPrefixLimitV6 -
+func (mock *connLimiterMock) GetNetworkPrefixLimitV6() []NetworkPrefixLimit {
+	return make([]NetworkPrefixLimit, 0)
+}
+
+func (mock *connLimiterMock) SetNetworkPrefixLimitV4(_ []NetworkPrefixLimit) {
+}
+
+func (mock *connLimiterMock) SetNetworkPrefixLimitV6(_ []NetworkPrefixLimit) {
+}
+
+func (mock *connLimiterMock) SetConnLimitPerSubnetV4(_ []ConnLimitPerSubnet) {
+}
+
+func (mock *connLimiterMock) SetConnLimitPerSubnetV6(_ []ConnLimitPerSubnet) {
+}
+
 var dummyMA = multiaddr.StringCast("/ip4/1.2.3.4/tcp/1234")
 
 func TestResourceManager(t *testing.T) {
@@ -1070,10 +1113,11 @@ func TestAllowlistAndConnLimiterPlayNice(t *testing.T) {
 		defer rcmgr.Close()
 
 		// The connLimiter should have the allowlisted network prefix
-		require.Equal(t, netip.MustParsePrefix("1.2.3.0/24"), rcmgr.(*resourceManager).connLimiter.networkPrefixLimitV4[0].Network)
+		networkPrefixLimitV4 := rcmgr.(*resourceManager).connLimiter.GetNetworkPrefixLimitV4()
+		require.Equal(t, netip.MustParsePrefix("1.2.3.0/24"), networkPrefixLimitV4[0].Network)
 
 		// The connLimiter should use the limit from the allowlist
-		require.Equal(t, 8, rcmgr.(*resourceManager).connLimiter.networkPrefixLimitV4[0].ConnCount)
+		require.Equal(t, 8, networkPrefixLimitV4[0].ConnCount)
 	})
 	t.Run("IPv6", func(t *testing.T) {
 		rcmgr, err := NewResourceManager(NewFixedLimiter(limits), WithAllowlistedMultiaddrs([]multiaddr.Multiaddr{
@@ -1085,10 +1129,11 @@ func TestAllowlistAndConnLimiterPlayNice(t *testing.T) {
 		defer rcmgr.Close()
 
 		// The connLimiter should have the allowlisted network prefix
-		require.Equal(t, netip.MustParsePrefix("1:2:3::/58"), rcmgr.(*resourceManager).connLimiter.networkPrefixLimitV6[0].Network)
+		networkPrefixLimitV6 := rcmgr.(*resourceManager).connLimiter.GetNetworkPrefixLimitV6()
+		require.Equal(t, netip.MustParsePrefix("1:2:3::/58"), networkPrefixLimitV6[0].Network)
 
 		// The connLimiter should use the limit from the allowlist
-		require.Equal(t, 8, rcmgr.(*resourceManager).connLimiter.networkPrefixLimitV6[0].ConnCount)
+		require.Equal(t, 8, networkPrefixLimitV6[0].ConnCount)
 	})
 
 	t.Run("Does not override if you set a limit directly", func(t *testing.T) {
@@ -1103,11 +1148,39 @@ func TestAllowlistAndConnLimiterPlayNice(t *testing.T) {
 		defer rcmgr.Close()
 
 		// The connLimiter should have it because we set it
-		require.Equal(t, netip.MustParsePrefix("1.2.3.0/24"), rcmgr.(*resourceManager).connLimiter.networkPrefixLimitV4[0].Network)
+		networkPrefixLimitV4 := rcmgr.(*resourceManager).connLimiter.GetNetworkPrefixLimitV4()
+		require.Equal(t, netip.MustParsePrefix("1.2.3.0/24"), networkPrefixLimitV4[0].Network)
 		// should only have one network prefix limit
-		require.Equal(t, 1, len(rcmgr.(*resourceManager).connLimiter.networkPrefixLimitV4))
+		require.Equal(t, 1, len(networkPrefixLimitV4))
 
 		// The connLimiter should use the limit we defined explicitly
-		require.Equal(t, 1, rcmgr.(*resourceManager).connLimiter.networkPrefixLimitV4[0].ConnCount)
+		require.Equal(t, 1, networkPrefixLimitV4[0].ConnCount)
+	})
+
+	t.Run("Should override the entire instance", func(t *testing.T) {
+		providedConnCount := 123
+		rcmgr, err := NewResourceManager(
+			NewFixedLimiter(limits), WithNetworkPrefixLimit([]NetworkPrefixLimit{
+				{Network: netip.MustParsePrefix("1.2.3.0/24"), ConnCount: 100}}, []NetworkPrefixLimit{}),
+			WithConnLimiter(&connLimiterMock{
+				GetNetworkPrefixLimitV4Called: func() []NetworkPrefixLimit {
+					return []NetworkPrefixLimit{
+						{Network: netip.MustParsePrefix("1.2.3.0/24"), ConnCount: providedConnCount},
+					}
+				},
+			}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rcmgr.Close()
+
+		// The connLimiter should have it because we set it
+		networkPrefixLimitV4 := rcmgr.(*resourceManager).connLimiter.GetNetworkPrefixLimitV4()
+		require.Equal(t, netip.MustParsePrefix("1.2.3.0/24"), networkPrefixLimitV4[0].Network)
+		// should only have one network prefix limit
+		require.Equal(t, 1, len(networkPrefixLimitV4))
+
+		// The connLimiter should use the limit we defined explicitly in the mock
+		require.Equal(t, providedConnCount, networkPrefixLimitV4[0].ConnCount)
 	})
 }

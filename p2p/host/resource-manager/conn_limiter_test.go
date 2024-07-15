@@ -15,14 +15,14 @@ func TestItLimits(t *testing.T) {
 		require.NoError(t, err)
 		cl := newConnLimiter()
 		cl.connLimitPerSubnetV4[0].ConnCount = 1
-		require.True(t, cl.addConn(ip))
+		require.True(t, cl.AddConn(ip))
 
 		// should fail the second time
-		require.False(t, cl.addConn(ip))
+		require.False(t, cl.AddConn(ip))
 
 		otherIP, err := netip.ParseAddr("1.2.3.5")
 		require.NoError(t, err)
-		require.True(t, cl.addConn(otherIP))
+		require.True(t, cl.AddConn(otherIP))
 	})
 	t.Run("IPv6", func(t *testing.T) {
 		ip, err := netip.ParseAddr("1:2:3:4::1")
@@ -33,15 +33,15 @@ func TestItLimits(t *testing.T) {
 		defer func() {
 			cl.connLimitPerSubnetV6[0].ConnCount = original
 		}()
-		require.True(t, cl.addConn(ip))
+		require.True(t, cl.AddConn(ip))
 
 		// should fail the second time
-		require.False(t, cl.addConn(ip))
+		require.False(t, cl.AddConn(ip))
 		otherIPSameSubnet := netip.MustParseAddr("1:2:3:4::2")
-		require.False(t, cl.addConn(otherIPSameSubnet))
+		require.False(t, cl.AddConn(otherIPSameSubnet))
 
 		otherIP := netip.MustParseAddr("2:2:3:4::2")
-		require.True(t, cl.addConn(otherIP))
+		require.True(t, cl.AddConn(otherIP))
 	})
 
 	t.Run("IPv6 with multiple limits", func(t *testing.T) {
@@ -50,30 +50,30 @@ func TestItLimits(t *testing.T) {
 			ip := net.ParseIP("ff:2:3:4::1")
 			binary.BigEndian.PutUint16(ip[14:], uint16(i))
 			ipAddr := netip.MustParseAddr(ip.String())
-			require.True(t, cl.addConn(ipAddr))
+			require.True(t, cl.AddConn(ipAddr))
 		}
 
 		// Next one should fail
 		ip := net.ParseIP("ff:2:3:4::1")
 		binary.BigEndian.PutUint16(ip[14:], uint16(defaultMaxConcurrentConns+1))
-		require.False(t, cl.addConn(netip.MustParseAddr(ip.String())))
+		require.False(t, cl.AddConn(netip.MustParseAddr(ip.String())))
 
 		// But on a different root subnet should work
 		otherIP := netip.MustParseAddr("ffef:2:3::1")
-		require.True(t, cl.addConn(otherIP))
+		require.True(t, cl.AddConn(otherIP))
 
 		// But too many on the next subnet limit will fail too
 		for i := 0; i < defaultMaxConcurrentConns*8; i++ {
 			ip := net.ParseIP("ffef:2:3:4::1")
 			binary.BigEndian.PutUint16(ip[5:7], uint16(i))
 			ipAddr := netip.MustParseAddr(ip.String())
-			require.True(t, cl.addConn(ipAddr))
+			require.True(t, cl.AddConn(ipAddr))
 		}
 
 		ip = net.ParseIP("ffef:2:3:4::1")
 		binary.BigEndian.PutUint16(ip[5:7], uint16(defaultMaxConcurrentConns*8+1))
 		ipAddr := netip.MustParseAddr(ip.String())
-		require.False(t, cl.addConn(ipAddr))
+		require.False(t, cl.AddConn(ipAddr))
 	})
 
 	t.Run("IPv4 with localhost", func(t *testing.T) {
@@ -85,15 +85,15 @@ func TestItLimits(t *testing.T) {
 		}
 
 		ip := netip.MustParseAddr("1.2.3.4")
-		require.True(t, cl.addConn(ip))
+		require.True(t, cl.AddConn(ip))
 
 		ip = netip.MustParseAddr("4.3.2.1")
 		// should fail the second time, we only allow 1 connection for the whole IPv4 space
-		require.False(t, cl.addConn(ip))
+		require.False(t, cl.AddConn(ip))
 
 		ip = netip.MustParseAddr("127.0.0.1")
 		// Succeeds because we defined an explicit limit for the loopback subnet
-		require.True(t, cl.addConn(ip))
+		require.True(t, cl.AddConn(ip))
 	})
 }
 
@@ -133,7 +133,7 @@ func FuzzConnLimiter(f *testing.F) {
 		cl := newConnLimiter()
 		addedConns := make([]netip.Addr, 0, len(ips))
 		for _, ip := range ips {
-			if cl.addConn(ip) {
+			if cl.AddConn(ip) {
 				addedConns = append(addedConns, ip)
 			}
 		}
@@ -160,7 +160,7 @@ func FuzzConnLimiter(f *testing.F) {
 		}
 
 		for _, ip := range addedConns {
-			cl.rmConn(ip)
+			cl.RmConn(ip)
 		}
 
 		leftoverCount := 0

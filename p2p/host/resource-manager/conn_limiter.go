@@ -75,10 +75,10 @@ func sortNetworkPrefixes(limits []NetworkPrefixLimit) []NetworkPrefixLimit {
 func WithNetworkPrefixLimit(ipv4 []NetworkPrefixLimit, ipv6 []NetworkPrefixLimit) Option {
 	return func(rm *resourceManager) error {
 		if ipv4 != nil {
-			rm.connLimiter.networkPrefixLimitV4 = sortNetworkPrefixes(ipv4)
+			rm.connLimiter.SetNetworkPrefixLimitV4(sortNetworkPrefixes(ipv4))
 		}
 		if ipv6 != nil {
-			rm.connLimiter.networkPrefixLimitV6 = sortNetworkPrefixes(ipv6)
+			rm.connLimiter.SetNetworkPrefixLimitV6(sortNetworkPrefixes(ipv6))
 		}
 		return nil
 	}
@@ -91,17 +91,41 @@ func WithNetworkPrefixLimit(ipv4 []NetworkPrefixLimit, ipv6 []NetworkPrefixLimit
 func WithLimitPerSubnet(ipv4 []ConnLimitPerSubnet, ipv6 []ConnLimitPerSubnet) Option {
 	return func(rm *resourceManager) error {
 		if ipv4 != nil {
-			rm.connLimiter.connLimitPerSubnetV4 = ipv4
+			rm.connLimiter.SetConnLimitPerSubnetV4(ipv4)
 		}
 		if ipv6 != nil {
-			rm.connLimiter.connLimitPerSubnetV6 = ipv6
+			rm.connLimiter.SetConnLimitPerSubnetV6(ipv6)
 		}
 		return nil
 	}
 }
 
+// WithConnLimiter sets the connection limiter.
+func WithConnLimiter(connLimiter ConnLimiter) Option {
+	return func(rm *resourceManager) error {
+		if connLimiter != nil {
+			rm.connLimiter = connLimiter
+		}
+
+		return nil
+	}
+}
+
+// ConnLimiter defines a connections limiter
+type ConnLimiter interface {
+	AddConn(ip netip.Addr) bool
+	RmConn(ip netip.Addr)
+	AddNetworkPrefixLimit(isIP6 bool, npLimit NetworkPrefixLimit)
+	GetNetworkPrefixLimitV4() []NetworkPrefixLimit
+	SetNetworkPrefixLimitV4(newValue []NetworkPrefixLimit)
+	GetNetworkPrefixLimitV6() []NetworkPrefixLimit
+	SetNetworkPrefixLimitV6(newValue []NetworkPrefixLimit)
+	SetConnLimitPerSubnetV4(newValue []ConnLimitPerSubnet)
+	SetConnLimitPerSubnetV6(newValue []ConnLimitPerSubnet)
+}
+
 type connLimiter struct {
-	mu sync.Mutex
+	mu sync.RWMutex
 
 	// Specific Network Prefix limits. If these are set, they take precedence over the
 	// subnet limits.
@@ -128,7 +152,56 @@ func newConnLimiter() *connLimiter {
 	}
 }
 
-func (cl *connLimiter) addNetworkPrefixLimit(isIP6 bool, npLimit NetworkPrefixLimit) {
+// GetNetworkPrefixLimitV4 returns the networkPrefixLimitV4
+func (cl *connLimiter) GetNetworkPrefixLimitV4() []NetworkPrefixLimit {
+	cl.mu.RLock()
+	defer cl.mu.RUnlock()
+
+	return cl.networkPrefixLimitV4
+}
+
+// SetNetworkPrefixLimitV4 sets the networkPrefixLimitV4
+func (cl *connLimiter) SetNetworkPrefixLimitV4(newValue []NetworkPrefixLimit) {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+
+	cl.networkPrefixLimitV4 = newValue
+}
+
+// GetNetworkPrefixLimitV6 returns the networkPrefixLimitV6
+func (cl *connLimiter) GetNetworkPrefixLimitV6() []NetworkPrefixLimit {
+	cl.mu.RLock()
+	defer cl.mu.RUnlock()
+
+	return cl.networkPrefixLimitV6
+}
+
+// SetNetworkPrefixLimitV6 sets the networkPrefixLimitV6
+func (cl *connLimiter) SetNetworkPrefixLimitV6(newValue []NetworkPrefixLimit) {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+
+	cl.networkPrefixLimitV6 = newValue
+}
+
+// SetConnLimitPerSubnetV4 sets the connLimitPerSubnetV4
+func (cl *connLimiter) SetConnLimitPerSubnetV4(newValue []ConnLimitPerSubnet) {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+
+	cl.connLimitPerSubnetV4 = newValue
+}
+
+// SetConnLimitPerSubnetV6 sets the connLimitPerSubnetV6
+func (cl *connLimiter) SetConnLimitPerSubnetV6(newValue []ConnLimitPerSubnet) {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+
+	cl.connLimitPerSubnetV6 = newValue
+}
+
+// AddNetworkPrefixLimit adds the provided network prefix limit to the corresponding slice
+func (cl *connLimiter) AddNetworkPrefixLimit(isIP6 bool, npLimit NetworkPrefixLimit) {
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
 	if isIP6 {
@@ -140,8 +213,8 @@ func (cl *connLimiter) addNetworkPrefixLimit(isIP6 bool, npLimit NetworkPrefixLi
 	}
 }
 
-// addConn adds a connection for the given IP address. It returns true if the connection is allowed.
-func (cl *connLimiter) addConn(ip netip.Addr) bool {
+// AddConn adds a connection for the given IP address. It returns true if the connection is allowed.
+func (cl *connLimiter) AddConn(ip netip.Addr) bool {
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
 	networkPrefixLimits := cl.networkPrefixLimitV4
@@ -216,7 +289,8 @@ func (cl *connLimiter) addConn(ip netip.Addr) bool {
 	return true
 }
 
-func (cl *connLimiter) rmConn(ip netip.Addr) {
+// RmConn removes a connection for the given IP address
+func (cl *connLimiter) RmConn(ip netip.Addr) {
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
 	networkPrefixLimits := cl.networkPrefixLimitV4

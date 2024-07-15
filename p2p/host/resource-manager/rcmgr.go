@@ -22,7 +22,7 @@ var log = logging.Logger("rcmgr")
 type resourceManager struct {
 	limits Limiter
 
-	connLimiter *connLimiter
+	connLimiter ConnLimiter
 
 	trace          *trace
 	metrics        *metrics
@@ -149,10 +149,10 @@ func NewResourceManager(limits Limiter, opts ...Option) (network.ResourceManager
 	}
 
 	registeredConnLimiterPrefixes := make(map[string]struct{})
-	for _, npLimit := range r.connLimiter.networkPrefixLimitV4 {
+	for _, npLimit := range r.connLimiter.GetNetworkPrefixLimitV4() {
 		registeredConnLimiterPrefixes[npLimit.Network.String()] = struct{}{}
 	}
-	for _, npLimit := range r.connLimiter.networkPrefixLimitV6 {
+	for _, npLimit := range r.connLimiter.GetNetworkPrefixLimitV6() {
 		registeredConnLimiterPrefixes[npLimit.Network.String()] = struct{}{}
 	}
 	for _, network := range allowlist.allowedNetworks {
@@ -163,7 +163,7 @@ func NewResourceManager(limits Limiter, opts ...Option) (network.ResourceManager
 		}
 		if _, ok := registeredConnLimiterPrefixes[prefix.String()]; !ok {
 			// connlimiter doesn't know about this network. Let's fix that
-			r.connLimiter.addNetworkPrefixLimit(prefix.Addr().Is6(), NetworkPrefixLimit{
+			r.connLimiter.AddNetworkPrefixLimit(prefix.Addr().Is6(), NetworkPrefixLimit{
 				Network:   prefix,
 				ConnCount: r.limits.GetAllowlistedSystemLimits().GetConnTotalLimit(),
 			})
@@ -359,7 +359,7 @@ func (r *resourceManager) OpenConnection(dir network.Direction, usefd bool, endp
 
 func (r *resourceManager) openConnection(dir network.Direction, usefd bool, endpoint multiaddr.Multiaddr, ip netip.Addr) (network.ConnManagementScope, error) {
 	if ip.IsValid() {
-		if ok := r.connLimiter.addConn(ip); !ok {
+		if ok := r.connLimiter.AddConn(ip); !ok {
 			return nil, fmt.Errorf("connections per ip limit exceeded for %s", endpoint)
 		}
 	}
@@ -704,7 +704,7 @@ func (s *connectionScope) Done() {
 		return
 	}
 	if s.ip.IsValid() {
-		s.rcmgr.connLimiter.rmConn(s.ip)
+		s.rcmgr.connLimiter.RmConn(s.ip)
 	}
 	s.resourceScope.doneUnlocked()
 }
